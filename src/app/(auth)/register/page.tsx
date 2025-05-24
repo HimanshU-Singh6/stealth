@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-// Removed Shadcn/ui imports
-import { registerUserSchema } from '@/schemas/userSchema'; // Your Zod schema for user registration
+import { signIn } from 'next-auth/react';
+import { registerUserSchema } from '@/schemas/userSchema';
 import { z } from 'zod';
 
 type FormData = z.infer<typeof registerUserSchema>;
@@ -43,35 +43,57 @@ export default function RegisterPage() {
 
     try {
       const validatedData = registerUserSchema.parse(formData);
-      const response = await fetch('/api/users/register', {
+
+      const registerResponse = await fetch('/api/users/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(validatedData),
       });
-      const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Registration failed.');
+      const registerData = await registerResponse.json();
+
+      if (!registerResponse.ok) {
+        throw new Error(registerData.message || 'Registration failed.');
       }
-      setSuccess('Registration successful! proceed to Log In.');
-    } catch (err: any) {
+
+      setSuccess('Registration successful! Logging you in...');
+
+      const signInResponse = await signIn('credentials', {
+        redirect: false,
+        email: validatedData.email,
+        password: validatedData.password,
+      });
+
+      if (signInResponse?.error) {
+        setError(`Registration successful, but auto-login failed: ${signInResponse.error}. Please try logging in manually.`);
+        setSuccess(null);
+        setLoading(false);
+        return;
+      }
+
+      if (signInResponse?.ok) {
+        router.push('/dashboard');
+      } else {
+        setError("Registration successful, but couldn't automatically log you in. Please log in manually.");
+        setLoading(false);
+      }
+
+    } catch (err) {
+      const currentError = err as Error;
       if (err instanceof z.ZodError) {
         const formattedErrors = err.errors.map(e => `${e.path.join('.')} (${e.message})`).join('\n');
         setError(`Validation errors:\n${formattedErrors}`);
       } else {
-        setError(err.message || 'An unexpected error occurred.');
-        console.error("Registration error:", err);
+        setError(currentError.message || 'An unexpected error occurred.');
+        console.error("Registration or Auto-Login Error:", currentError);
       }
-    } finally {
       setLoading(false);
     }
   };
 
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-[#dff3e3] to-[#e3f6f1] p-4">
       <div className="flex max-w-4xl w-full shadow-xl rounded-3xl overflow-hidden bg-white">
-        {/* Left Side - Form */}
         <div className="w-full md:w-1/2 p-8 sm:p-10 flex flex-col justify-center">
           <h1 className="text-4xl font-black text-[#28a745] mb-3 text-center sm:text-left">Stealth</h1>
           <h2 className="text-2xl font-bold mb-6 text-center sm:text-left">Sign Up</h2>
@@ -80,7 +102,6 @@ export default function RegisterPage() {
           {success && <p className="mb-4 text-sm text-green-600 bg-green-100 p-3 rounded-md">{success}</p>}
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {/* Standard HTML Input with Tailwind classes */}
             <input
               type="text"
               name="name"
@@ -121,8 +142,6 @@ export default function RegisterPage() {
               disabled={loading}
               required
             />
-
-            {/* Standard HTML Checkbox with Tailwind classes */}
             <label className="flex items-center gap-2 mt-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -136,28 +155,23 @@ export default function RegisterPage() {
                 I Accept the <Link href="/privacy-policy" target="_blank" className="text-[#28a745] underline hover:text-[#1f7a33]">Privacy Policy</Link>
               </span>
             </label>
-
-            {/* Standard HTML Button with Tailwind classes */}
             <button
               type="submit"
               className="mt-4 bg-gradient-to-r from-[#43e97b] to-[#38f9d7] text-black font-bold py-3 rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading || !acceptedPrivacy}
             >
-              {loading ? 'CREATING...' : 'CREATE AN ACCOUNT'}
+              {loading ? 'PROCESSING...' : 'CREATE AN ACCOUNT & LOG IN'}
             </button>
-
             <p className="text-sm mt-4 text-center">
               Already Have an Account? <Link href="/signin" className="text-[#28a745] font-semibold hover:underline">Log In</Link>
             </p>
           </form>
         </div>
-
-        {/* Right Side - Visual Background */}
        <div
-  className="hidden md:flex md:w-1/2 bg-cover bg-center relative items-center justify-center"
-  style={{ backgroundImage: "url('/window.jpg')" }}
->
-</div>
+          className="hidden md:flex md:w-1/2 bg-cover bg-center relative items-center justify-center"
+          style={{ backgroundImage: "url('/window.jpg')" }}
+        >
+        </div>
       </div>
     </div>
   );
