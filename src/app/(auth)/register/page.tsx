@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { registerUserSchema } from '@/schemas/userSchema';
 import { z } from 'zod';
+import { sendWelcomeEmail } from '@/services/sendEmail';
 
 type FormData = z.infer<typeof registerUserSchema>;
 
@@ -55,6 +56,18 @@ export default function RegisterPage() {
       if (!registerResponse.ok) {
         throw new Error(registerData.message || 'Registration failed.');
       }
+
+      sendWelcomeEmail({ toEmail: formData.email, toName: formData.name })
+      .then(emailResponse => {
+        if (emailResponse.success) {
+          console.log(`Welcome email sent to ${formData.email}, Message ID: ${emailResponse.messageId}`);
+        } else {
+          console.error(`Failed to send welcome email to ${formData.email}: ${emailResponse.error}`);
+        }
+      })
+      .catch(emailError => {
+        console.error(`Unhandled error sending welcome email to ${formData.email}:`, emailError);
+      });
 
       setSuccess('Registration successful! Logging you in...');
 
