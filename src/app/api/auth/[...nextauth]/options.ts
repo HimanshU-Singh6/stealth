@@ -1,80 +1,101 @@
-import { NextAuthOptions } from 'next-auth';
+import { NextAuthOptions, User as NextAuthUser } from 'next-auth'; // Import NextAuthUser for clarity
 import CredentialsProvider from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
-import dbConnect from '@/lib/dbConnect'; // Your existing DB connection
-import User, { IUser } from '@/models/User'; // Your Mongoose User model
+import dbConnect from '@/lib/dbConnect';
+import UserModel, { IUser as AppUser } from '@/models/User'; // Your Mongoose User model/interface
+
+interface Credentials {
+  email?: string;
+  password?: string;
+  // Add any other credential fields you expect (e.g., identifier)
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
-      id: 'credentials', // You can use any ID
+      id: 'credentials',
       name: 'Credentials',
       credentials: {
         email: { label: 'Email', type: 'email', placeholder: 'john.doe@example.com' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials: any): Promise<any> {
+      async authorize(credentialsInput): Promise<NextAuthUser | null> { // Return type should align with NextAuth's User
+        const credentials = credentialsInput as Credentials; // Cast to your defined Credentials type
         await dbConnect();
         try {
           if (!credentials?.email || !credentials?.password) {
             throw new Error('Email and password required');
           }
 
-          const user = await User.findOne({ email: credentials.email }).select('+password'); // Ensure password is selected
+          const userFromDb = await UserModel.findOne({ email: credentials.email }).select('+password');
 
-          if (!user) {
+          if (!userFromDb) {
             throw new Error('No user found with this email');
           }
 
-          // If you haven't implemented password hashing yet, this is crucial!
-          // For now, we'll assume the password in the DB is hashed.
           const isPasswordCorrect = await bcrypt.compare(
             credentials.password,
-            user.password
+            userFromDb.password
           );
 
           if (isPasswordCorrect) {
-            // Return user object without password
-            const { password, ...userWithoutPassword } = user.toObject();
-            return userWithoutPassword;
+            // Map your DB user to the structure NextAuth expects for its User type
+            // and include your custom fields.
+            return {
+              id: userFromDb._id.toString(), // NextAuth often expects `id` from authorize.
+              _id: userFromDb._id.toString(), // Your custom field
+              email: userFromDb.email,
+              name: userFromDb.name,
+              role: userFromDb.role,
+              // image: userFromDb.image, // if you have it
+            } as NextAuthUser & AppUser; // Cast to a merged type
           } else {
             throw new Error('Incorrect password');
           }
-        } catch (err: any) {
-          // Log the error for debugging if needed
-          console.error("Authorize error:", err.message);
-          throw new Error(err.message || 'Authentication failed');
+        } catch (err) {
+          const error = err as Error;
+          console.error("Authorize error:", error.message);
+          throw new Error(error.message || 'Authentication failed');
         }
       },
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
+      // `user` is passed on initial sign-in. It's the object from `authorize`.
       if (user) {
-        // The user object here is what was returned from the authorize callback
-        token._id = (user as IUser)._id?.toString();
-        token.email = (user as IUser).email;
-        token.name = (user as IUser).name;
-        token.role = (user as IUser).role;
+        // The `user` object from `authorize` should already have _id and role.
+        // The type of `user` here is NextAuth's `User` type, which you've augmented.
+        token._id = user._id;      // user._id should exist due to augmentation and authorize return
+        token.role = user.role;    // user.role should exist
+        token.name = user.name;
+        token.email = user.email;
+        // token.picture = user.image; // Default JWT uses 'picture' for image
       }
       return token;
     },
     async session({ session, token }) {
-      if (token) {
-        session.user._id = token._id as string;
-        session.user.email = token.email as string;
-        session.user.name = token.name as string;
-        session.user.role = token.role as "admin" | "lessee";
+      // The token object has _id and role from the jwt callback.
+      // We need to ensure all properties defined in `next-auth.d.ts` for `session.user` are populated.
+      if (token && session.user) { // Check if session.user exists
+        session.user._id = token._id as string | undefined;
+        session.user.role = token.role as 'admin' | 'lessee' | undefined;
+        session.user.name = token.name as string | null | undefined;
+        session.user.email = token.email as string | null | undefined;
+        // session.user.image = token.picture as string | null | undefined; // if you use image/picture
+
+        // Ensure all properties from DefaultSession['user'] are also handled
+        // or are implicitly covered by the spread in next-auth.d.ts.
+        // NextAuth's DefaultSession['user'] has name, email, image. We've explicitly set them.
       }
       return session;
     },
   },
   session: {
-    strategy: 'jwt', // Use JSON Web Tokens for sessions
+    strategy: 'jwt',
   },
   secret: process.env.NEXTAUTH_SECRET,
   pages: {
-    signIn: '/auth/signin', // Custom sign-in page (you'll create this)
-    // error: '/auth/error', // (optional) Custom error page
+    signIn: '/auth/signin',
   },
 };

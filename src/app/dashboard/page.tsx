@@ -149,7 +149,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (authStatus === 'loading' || (isLoading && allVehicles.length === 0 && authStatus !== 'unauthenticated')) { // Redirect if no session and not loading (should be caught by useEffect too)
+  if ( (isLoading && allVehicles.length === 0 && authStatus !== 'unauthenticated')) { // Redirect if no session and not loading (should be caught by useEffect too)
     // router.push('/auth/signin'); // This can cause hydration errors if called directly in render
     return null; // useEffect will handle redirect
   }
@@ -178,7 +178,7 @@ export default function DashboardPage() {
   </a>
 </Link>
               <button
-                onClick={() => signOut({ callbackUrl: '/auth/signin' })} // Changed callback to /auth/signin
+                onClick={() => signOut({ callbackUrl: '/signin' })}
                 className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 flex items-center"
               >
                 <LogOut size={18} className="mr-1" /> Logout
