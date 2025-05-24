@@ -1,0 +1,49 @@
+src/
+├── app/
+│   ├── api/
+|   |     |- auth/[...nextauth]/route.js              → All your route handlers (e.g., /api/users, /api/leases)
+│   ├── favicon.ico
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx
+├── lib/                    → DB connection, auth middleware, RBAC utils
+├── middleware/             → Middlewares (e.g., role-based access)
+├── models/                 → MongoDB Mongoose models
+├── schemas/                → Zod schemas for validating API input
+├── services/               → Stripe, Email (Brevo), PDF, Cloudinary logic
+.gitignore
+eslint.config.mjs
+next-env.d.ts
+next.config.ts
+package-lock.json
+package.json
+postcss.config.mjs
+README.md
+tailwind.config.ts
+tsconfig.json
+
+
+/app
+  /api
+    /auth [...nextauth]
+    /users
+    /vehicles
+    /leases
+    /payments
+    /dashboard
+    /upload
+/lib
+  dbConnect.js
+  auth.js
+  rbac.js
+/services
+  stripe.js
+  email.js
+  pdf.js
+  cloudinary.js
+/models
+  User.js
+  Vehicle.js
+  Lease.js
+  Payment.js
+.env
