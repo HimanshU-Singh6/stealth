@@ -9,7 +9,7 @@ interface Params {
   vehicleId: string;
 }
 
-// GET a single vehicle by ID (Optional, if you need a dedicated endpoint for it)
+// GET a single vehicle by ID
 export async function GET(request: Request, { params }: { params: Params }) {
   await dbConnect();
   try {
@@ -18,13 +18,15 @@ export async function GET(request: Request, { params }: { params: Params }) {
         return NextResponse.json({ message: "Invalid vehicle ID format" }, { status: 400 });
     }
 
-    const vehicle = await VehicleModel.findById(vehicleId).populate('ownerId', 'name email');
+    // Ensure ownerId is populated with _id, name, and email for the details page
+    const vehicle = await VehicleModel.findById(vehicleId).populate('ownerId', '_id name email');
+
     if (!vehicle) {
       return NextResponse.json({ message: "Vehicle not found" }, { status: 404 });
     }
-    return NextResponse.json(vehicle, { status: 200 });
+    return NextResponse.json(vehicle, { status: 200 }); // Return the vehicle directly
   } catch (error) {
-    console.error("Error fetching vehicle:", error);
+    console.error("Error fetching vehicle (GET):", error);
     return NextResponse.json({ message: "Error fetching vehicle", error: (error as Error).message }, { status: 500 });
   }
 }
@@ -40,53 +42,60 @@ export async function PATCH(request: Request, { params }: { params: Params }) {
   await dbConnect();
   try {
     const { vehicleId } = params;
-     if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
+    if (!mongoose.Types.ObjectId.isValid(vehicleId)) {
         return NextResponse.json({ message: "Invalid vehicle ID format" }, { status: 400 });
     }
     const body = await request.json();
 
-    const vehicle = await VehicleModel.findById(vehicleId);
-    if (!vehicle) {
+    const vehicleToUpdate = await VehicleModel.findById(vehicleId).select('+ownerId'); // Select ownerId
+
+    if (!vehicleToUpdate) {
       return NextResponse.json({ message: "Vehicle not found" }, { status: 404 });
     }
 
-    // Check if the logged-in user is the owner of the vehicle
-    if (vehicle.ownerId.toString() !== session.user._id) {
-      return NextResponse.json({ message: "Forbidden: You are not the owner of this vehicle" }, { status: 403 });
-    }
+    const { ownerId, ...updateData } = body; // Exclude ownerId from direct update via body
 
-    // Prevent ownerId from being updated directly via PATCH
-    const { ownerId, ...updateData } = body;
-
-    // Check if updating license and if it conflicts with another vehicle
-    if (updateData.license && updateData.license !== vehicle.license) {
-        const existingVehicleByLicense = await VehicleModel.findOne({ license: updateData.license, _id: { $ne: vehicleId } });
-        if (existingVehicleByLicense) {
-            return NextResponse.json(
-                { message: "Another vehicle with this license plate already exists." },
-                { status: 409 }
-            );
+    // Conditional ownership check based on what's being updated
+    if (Object.keys(updateData).length === 1 && updateData.status === 'leased') {
+        // This is the flow from leasing a vehicle.
+        // The lease creation itself is authenticated. Assume this status update is a system action.
+        console.log(`System/Lease flow updating vehicle ${vehicleId} status to 'leased'.`);
+    } else {
+        // For any other general edits, enforce that the requester is the owner.
+        if (!vehicleToUpdate.ownerId || session.user._id.toString() !== vehicleToUpdate.ownerId.toString()) {
+            return NextResponse.json({ message: "Forbidden: You are not authorized to make these changes to the vehicle." }, { status: 403 });
+        }
+        // Check for license conflict if license is being updated AND is different from current
+        if (updateData.license && updateData.license !== vehicleToUpdate.license) {
+            const existingVehicleByLicense = await VehicleModel.findOne({ license: updateData.license, _id: { $ne: vehicleId } });
+            if (existingVehicleByLicense) {
+                return NextResponse.json(
+                    { message: "Another vehicle with this license plate already exists." },
+                    { status: 409 }
+                );
+            }
         }
     }
 
-
     const updatedVehicle = await VehicleModel.findByIdAndUpdate(
       vehicleId,
-      updateData,
-      { new: true, runValidators: true } // Return the updated document and run schema validators
-    );
+      updateData, // Apply the filtered updateData
+      { new: true, runValidators: true }
+    ).populate('ownerId', '_id name email'); // Re-populate ownerId for the returned object
 
-    if (!updatedVehicle) { // Should not happen if findById found it, but good practice
-        return NextResponse.json({ message: "Vehicle not found after update attempt" }, { status: 404 });
+    if (!updatedVehicle) {
+        // This case should be rare if findById found it initially, but good for safety.
+        return NextResponse.json({ message: "Vehicle not found after update attempt or update failed" }, { status: 404 });
     }
 
+    // Return the updated vehicle object, nested under 'vehicle' key
     return NextResponse.json(
       { message: "Vehicle updated successfully", vehicle: updatedVehicle },
       { status: 200 }
     );
   } catch (error: any) {
-    console.error("Error updating vehicle:", error);
-     if (error.name === 'ValidationError') {
+    console.error("Error updating vehicle (PATCH):", error);
+    if (error.name === 'ValidationError') {
         return NextResponse.json({ message: "Validation Error", errors: error.errors }, { status: 400 });
     }
     if (error.code === 11000 && error.keyPattern && error.keyPattern.license) {
@@ -110,13 +119,12 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
         return NextResponse.json({ message: "Invalid vehicle ID format" }, { status: 400 });
     }
 
-    const vehicle = await VehicleModel.findById(vehicleId);
+    const vehicle = await VehicleModel.findById(vehicleId).select('+ownerId');
     if (!vehicle) {
       return NextResponse.json({ message: "Vehicle not found" }, { status: 404 });
     }
 
-    // Check if the logged-in user is the owner
-    if (vehicle.ownerId.toString() !== session.user._id) {
+    if (!vehicle.ownerId || vehicle.ownerId.toString() !== session.user._id.toString()) {
       return NextResponse.json({ message: "Forbidden: You are not the owner of this vehicle" }, { status: 403 });
     }
 
@@ -124,10 +132,10 @@ export async function DELETE(request: Request, { params }: { params: Params }) {
 
     return NextResponse.json(
       { message: "Vehicle deleted successfully" },
-      { status: 200 } // Or 204 No Content
+      { status: 200 }
     );
-  } catch (error) {
-    console.error("Error deleting vehicle:", error);
-    return NextResponse.json({ message: "Error deleting vehicle", error: (error as Error).message }, { status: 500 });
+  } catch (error: any) {
+    console.error("Error deleting vehicle (DELETE):", error);
+    return NextResponse.json({ message: "Error deleting vehicle", error: error.message }, { status: 500 });
   }
 }

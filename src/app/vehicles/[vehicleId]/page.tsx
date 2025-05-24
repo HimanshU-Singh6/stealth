@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Loader2, CalendarDays, DollarSign, Car, ShieldCheck, ArrowLeft, UserCircle } from 'lucide-react'; // Assuming lucide-react
+import { Loader2, CalendarDays, DollarSign, Car, ShieldCheck, ArrowLeft, UserCircle } from 'lucide-react';
 
 interface Vehicle {
   _id: string;
@@ -17,23 +17,22 @@ interface Vehicle {
   imageUrl?: string;
   description?: string;
   features?: string[];
-  ownerId: { // Assuming ownerId is populated with user details
+  ownerId: {
     _id: string;
     name?: string;
     email?: string;
   };
 }
 
-interface LeaseAgreement { // Simplified representation
+interface LeaseAgreement {
     lesseeName: string;
     lesseeEmail: string;
     vehicleMakeModel: string;
     vehicleYear: number;
     vehicleLicense: string;
-    leaseTerm: string; // e.g., "12 months"
+    leaseTerm: string;
     monthlyPayment: number;
     startDate: string;
-    // ... more fields like mileage allowance, insurance requirements, etc.
 }
 
 export default function VehicleDetailsPage() {
@@ -45,6 +44,7 @@ export default function VehicleDetailsPage() {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [leaseModalError, setLeaseModalError] = useState<string | null>(null);
   const [showLeaseModal, setShowLeaseModal] = useState(false);
   const [leaseAgreement, setLeaseAgreement] = useState<LeaseAgreement | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -75,12 +75,12 @@ export default function VehicleDetailsPage() {
   };
 
   const handleLeaseNow = () => {
+    setLeaseModalError(null);
     if (!session?.user) {
       router.push(`/auth/signin?callbackUrl=/vehicles/${vehicleId}`);
       return;
     }
     if (vehicle && vehicle.status === 'available') {
-        // Generate a simplified lease agreement
         const agreement: LeaseAgreement = {
             lesseeName: session.user.name || "N/A",
             lesseeEmail: session.user.email || "N/A",
@@ -94,7 +94,7 @@ export default function VehicleDetailsPage() {
         setLeaseAgreement(agreement);
         setShowLeaseModal(true);
     } else {
-        alert("This vehicle is not available for lease or you are not logged in.");
+        alert("This vehicle is not available for lease.");
     }
   };
 
@@ -102,83 +102,93 @@ export default function VehicleDetailsPage() {
     if (!leaseAgreement || !vehicle || !session?.user?._id) return;
 
     setIsProcessingPayment(true);
-    setError(null);
+    setLeaseModalError(null);
 
     try {
-        // 1. Simulate API call to create a lease record in your DB
-        // This API would take vehicleId, userId, lease details (from leaseAgreement)
-        console.log("Attempting to create lease for vehicle:", vehicle._id, "by user:", session.user._id);
-        const leaseResponse = await fetch('/api/leases', { // **NEW API ENDPOINT TO CREATE**
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: session.user._id,
-                vehicleId: vehicle._id,
-                startDate: new Date().toISOString(), // Or from a form
-                endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString(), // Example: 1 year
-                monthlyPayment: vehicle.leasePrice,
-                // ... other lease details from the agreement
-            }),
-        });
+      // 1. Create Lease
+      console.log("Attempting to create lease for vehicle:", vehicle._id, "by user:", session.user._id);
+      const leaseResponse = await fetch('/api/leases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: session.user._id,
+          vehicleId: vehicle._id,
+          startDate: new Date().toISOString(),
+          endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString(),
+          monthlyPayment: vehicle.leasePrice,
+        }),
+      });
 
-        if (!leaseResponse.ok) {
-            const errData = await leaseResponse.json();
-            throw new Error(errData.message || "Failed to create lease agreement.");
-        }
-        const createdLease = await leaseResponse.json();
-        console.log("Lease created:", createdLease);
+      if (!leaseResponse.ok) {
+        const errData = await leaseResponse.json();
+        throw new Error(errData.message || "Failed to create lease agreement.");
+      }
+      const createdLeaseData = await leaseResponse.json();
+      const createdLease = createdLeaseData.lease;
+      console.log("Lease created:", createdLease);
 
-        // 2. Simulate Payment (e.g., first month's payment)
-        // In a real app, this would involve Stripe, PayPal, etc.
-        // For simulation, we'll just assume it's successful after a delay.
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate network latency
-        console.log("Simulating payment processing for lease ID:", createdLease.lease._id);
+      if (!createdLease || !createdLease._id) {
+        throw new Error("Lease creation response did not include a valid lease object with _id.");
+      }
 
+      // 2. Simulate Payment Processing
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      console.log("Simulating payment processing for lease ID:", createdLease._id);
 
-        // 3. (Optional) Simulate API call to create a payment record
-        const paymentResponse = await fetch('/api/payments', { // **NEW API ENDPOINT TO CREATE**
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                leaseId: createdLease.lease._id, // ID from the created lease
-                amount: vehicle.leasePrice,
-                paymentMethod: "Simulated Card", // Placeholder
-                transactionId: `SIM_TRANS_${Date.now()}`
-            })
-        });
-         if (!paymentResponse.ok) {
-            // Even if payment record fails, lease is created. Handle compensation or logging.
-            console.error("Failed to record payment, but lease was created.");
+      // 3. Record Payment
+      const paymentResponse = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leaseId: createdLease._id,
+          amount: vehicle.leasePrice,
+          paymentMethod: "Simulated Card",
+          transactionId: `SIM_TRANS_${Date.now()}`
+        })
+      });
+      if (!paymentResponse.ok) {
+        console.warn("Failed to record payment, but lease was created. Payment API Error:", await paymentResponse.text());
+      } else {
+        console.log("Payment recorded:", await paymentResponse.json());
+      }
+
+      // 4. Update Vehicle Status to 'leased'
+      console.log(`Attempting to update vehicle ${vehicle._id} status to 'leased'.`);
+      const updateVehicleStatusResponse = await fetch(`/api/vehicles/${vehicle._id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'leased' }),
+      });
+
+      if (!updateVehicleStatusResponse.ok) {
+        const errorBody = await updateVehicleStatusResponse.text();
+        console.error("Failed to update vehicle status. Vehicle API Error:", errorBody);
+        // Decide if this is critical enough to stop the "success" message to the user.
+        // For now, we proceed with success for lease/payment but log this error.
+        // throw new Error(`Vehicle status update failed: ${errorBody}`);
+      } else {
+        const updatedVehicleData = await updateVehicleStatusResponse.json();
+        console.log("Vehicle status updated successfully in DB:", updatedVehicleData);
+        // Update local vehicle state with the response from the PATCH endpoint
+        if (updatedVehicleData && updatedVehicleData.vehicle) {
+             setVehicle(updatedVehicleData.vehicle); // Use the updated vehicle from API
         } else {
-            console.log("Payment recorded:", await paymentResponse.json());
+            // Fallback: if API doesn't return vehicle object in expected format
+            setVehicle(prev => prev ? { ...prev, status: 'leased' } : null);
         }
+      }
 
-
-        // 4. Update vehicle status (ideally done transacciónally with lease creation)
-        // For now, we'll do it as a separate step.
-        const updateVehicleStatusResponse = await fetch(`/api/vehicles/${vehicle._id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'leased' }),
-        });
-
-        if (!updateVehicleStatusResponse.ok) {
-            console.error("Failed to update vehicle status, but lease and payment processed.");
-            // Handle this inconsistency (e.g., admin notification)
-        }
-
-        alert("Lease confirmed and payment processed successfully! Vehicle is now leased.");
-        setShowLeaseModal(false);
-        router.push('/dashboard'); // Or a "my leases" page
+      alert("Lease confirmed and payment processed successfully! Vehicle is now leased.");
+      setShowLeaseModal(false);
+      router.push('/dashboard');
 
     } catch (err: any) {
-        setError(err.message || "An error occurred during the lease process.");
-        console.error("Lease/Payment Error:", err);
+      setLeaseModalError(err.message || "An error occurred during the lease process.");
+      console.error("Lease/Payment Flow Error:", err);
     } finally {
-        setIsProcessingPayment(false);
+      setIsProcessingPayment(false);
     }
   };
-
 
   if (isLoading) {
     return (
@@ -188,7 +198,7 @@ export default function VehicleDetailsPage() {
     );
   }
 
-  if (error) {
+  if (error && !vehicle) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
         <p className="text-red-500 text-xl mb-4">{error}</p>
@@ -210,7 +220,7 @@ export default function VehicleDetailsPage() {
     );
   }
 
-  const isOwner = session?.user?._id === vehicle.ownerId._id;
+  const isOwner = !!(session?.user?._id && vehicle && vehicle.ownerId && vehicle.ownerId._id && session.user._id === vehicle.ownerId._id);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -222,7 +232,7 @@ export default function VehicleDetailsPage() {
         <div className="bg-white shadow-xl rounded-lg overflow-hidden md:flex">
           <div className="md:w-1/2">
             <img
-              src={vehicle.imageUrl || 'https://via.placeholder.com/800x600?text=No+Image'}
+              src={vehicle.imageUrl || 'https://placehold.co/800x600/EBF5FB/76D7C4/png?text=Vehicle+Image'}
               alt={`${vehicle.make} ${vehicle.vehicleModel}`}
               className="w-full h-64 md:h-full object-cover"
             />
@@ -277,44 +287,47 @@ export default function VehicleDetailsPage() {
               </div>
             )}
 
-            {authStatus === 'authenticated' && vehicle.status === 'available' && !isOwner && (
-              <button
-                onClick={handleLeaseNow}
-                className="w-full mt-4 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
-              >
-                Lease This Vehicle
-              </button>
-            )}
-            {authStatus === 'authenticated' && vehicle.status !== 'available' && !isOwner && (
-                <p className="mt-4 text-center text-yellow-600 bg-yellow-50 p-3 rounded-md">
-                    This vehicle is currently not available for lease.
-                </p>
-            )}
-            {authStatus === 'authenticated' && isOwner && (
-                 <p className="mt-4 text-center text-blue-600 bg-blue-50 p-3 rounded-md">
-                    This is your vehicle listing.
-                    {/* Add edit/delete buttons here if desired */}
-                    {/* <Link href={`/dashboard/edit-vehicle/${vehicle._id}`} className="ml-2 text-blue-700 hover:underline">Edit</Link> */}
-                </p>
-            )}
-            {authStatus === 'unauthenticated' && vehicle.status === 'available' && (
+            {authStatus === 'authenticated' ? (
+                isOwner ? (
+                    <p className="mt-4 text-center text-blue-600 bg-blue-50 p-3 rounded-md">
+                        This is your vehicle listing.
+                        <Link href={`/dashboard/edit-vehicle/${vehicle._id}`} className="ml-2 font-semibold text-blue-700 hover:underline">
+                            Manage Listing
+                        </Link>
+                    </p>
+                ) : vehicle.status === 'available' ? (
+                    <button
+                        onClick={handleLeaseNow}
+                        className="w-full mt-4 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50"
+                    >
+                        Lease This Vehicle
+                    </button>
+                ) : (
+                    <p className="mt-4 text-center text-yellow-600 bg-yellow-50 p-3 rounded-md">
+                        This vehicle is currently not available for lease.
+                    </p>
+                )
+            ) : vehicle.status === 'available' ? (
                 <button
                     onClick={() => router.push(`/auth/signin?callbackUrl=/vehicles/${vehicleId}`)}
                     className="w-full mt-4 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700 transition"
                 >
                     Sign In to Lease
                 </button>
+            ) : (
+                 <p className="mt-4 text-center text-yellow-600 bg-yellow-50 p-3 rounded-md">
+                    Please sign in to see lease options. This vehicle may not be available.
+                </p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Lease Agreement Modal */}
       {showLeaseModal && leaseAgreement && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 sm:p-8 rounded-lg shadow-xl max-w-lg w-full transform transition-all">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white p-6 sm:p-8 rounded-lg shadow-xl max-w-lg w-full transform transition-all my-8">
             <h2 className="text-2xl font-bold text-gray-800 mb-4">Lease Agreement Summary</h2>
-            <div className="space-y-2 text-sm text-gray-700 mb-6">
+            <div className="space-y-2 text-sm text-gray-700 mb-6 max-h-60 overflow-y-auto pr-2">
               <p><strong>Lessee:</strong> {leaseAgreement.lesseeName} ({leaseAgreement.lesseeEmail})</p>
               <p><strong>Vehicle:</strong> {leaseAgreement.vehicleMakeModel} ({leaseAgreement.vehicleYear})</p>
               <p><strong>License:</strong> {leaseAgreement.vehicleLicense}</p>
@@ -326,8 +339,8 @@ export default function VehicleDetailsPage() {
                 By proceeding, you agree to the outlined terms and to make the initial payment.
               </p>
             </div>
-            {error && <p className="mb-3 text-sm text-red-500 bg-red-100 p-2 rounded">{error}</p>}
-            <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
+            {leaseModalError && <p className="mb-3 text-sm text-red-500 bg-red-100 p-2 rounded">{leaseModalError}</p>}
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-3 border-t">
               <button
                 onClick={() => setShowLeaseModal(false)}
                 disabled={isProcessingPayment}

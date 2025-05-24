@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 // Icons (example using lucide-react, or use SVGs)
-import { LogOut, Car, PlusCircle, Filter, ArrowUpDown, MessageCircle, Search, X, Edit3, Eye } from 'lucide-react';
+import { LogOut, Car, PlusCircle, Filter, ArrowUpDown, MessageCircle, Search, X, Edit3, Eye,FileText } from 'lucide-react';
 
 // Define a type for your vehicle data
 interface Vehicle {
@@ -149,7 +149,7 @@ export default function DashboardPage() {
     );
   }
 
-  if ((isLoading && allVehicles.length === 0 && authStatus !== 'unauthenticated') || authStatus === 'loading' ) { // Redirect if no session and not loading (should be caught by useEffect too)
+  if (authStatus === 'loading' || (isLoading && allVehicles.length === 0 && authStatus !== 'unauthenticated')) { // Redirect if no session and not loading (should be caught by useEffect too)
     // router.push('/auth/signin'); // This can cause hydration errors if called directly in render
     return null; // useEffect will handle redirect
   }
@@ -172,6 +172,11 @@ export default function DashboardPage() {
                   <PlusCircle size={18} className="mr-1" /> List Your Car
                 </a>
               </Link>
+              <Link href="/dashboard/my-leases" legacyBehavior> 
+  <a className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 flex items-center">
+    <FileText size={18} className="mr-1" /> My Leases
+  </a>
+</Link>
               <button
                 onClick={() => signOut({ callbackUrl: '/auth/signin' })} // Changed callback to /auth/signin
                 className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 flex items-center"
